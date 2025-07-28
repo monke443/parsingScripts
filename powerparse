@@ -1,0 +1,40 @@
+#!/bin/bash
+
+if [[ $# -ne 1 || ! -f "$1" ]]; then
+    echo "Command filtered: Get-Domainuser -Properties userprincipalname,memberof"
+    echo "Usage: $0 <input_file>"
+    exit 1
+fi
+
+declare -A user_groups
+declare -A user_first_group
+declare -a current_groups
+
+while IFS= read -r line; do
+    if [[ "$line" =~ ^memberof ]]; then
+        while [[ "$line" =~ CN=([^,}]+) ]]; do
+            group="${BASH_REMATCH[1]}"
+            if [[ "$group" != "Users" ]]; then
+                current_groups+=("$group")
+            fi
+            line=${line#*CN=$group}
+        done
+    elif [[ "$line" =~ ^userprincipalname ]]; then
+        user=$(echo "$line" | sed -n 's/.*: *\([^@]*\)@.*/\1/p')
+        for group in "${current_groups[@]}"; do
+            if [[ -z "${user_groups[$user]}" ]]; then
+                user_first_group[$user]="$group"
+                user_groups[$user]="$group"
+            else
+                if [[ ",${user_groups[$user]}," != *",$group,"* ]]; then
+                    user_groups[$user]+=", $group"
+                fi
+            fi
+        done
+        current_groups=()
+    fi
+done < "$1"
+
+for user in "${!user_groups[@]}"; do
+    echo -e "${user_first_group[$user]}\t$user -> ${user_groups[$user]}"
+done | sort | cut -f2-
